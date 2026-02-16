@@ -1,5 +1,7 @@
-import os
+import base64
+import io
 import json
+import os
 import subprocess
 from pathlib import Path
 from pydub import AudioSegment
@@ -32,32 +34,49 @@ def ensure_dirs():
 
 
 def convert_audio():
-    """Convert all audio to 16k mono wav for MFA"""
-    for audio_file in AUDIO_IN.iterdir():
-        if audio_file.suffix.lower() not in [".wav", ".mp3", ".flac", ".m4a"]:
+    """Convert audio from dataset/alignment.json (audioBase64) to 16k mono wav for MFA.
+    Uses voiceKeyHash as the output filename."""
+    alignment_path = DATASET / "alignment.json"
+    with open(alignment_path, "r", encoding="utf8") as f:
+        entries = json.load(f)
+
+    for entry in entries:
+        voice_key_hash = entry.get("voiceKeyHash")
+        audio_b64 = entry.get("audioBase64")
+        if not voice_key_hash or not audio_b64:
             continue
 
-        wav_path = WAV_DIR / (audio_file.stem + ".wav")
-
+        wav_path = WAV_DIR / f"{voice_key_hash}.wav"
         if wav_path.exists():
             continue
 
-        audio = AudioSegment.from_file(audio_file)
+        audio_bytes = base64.b64decode(audio_b64)
+        audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="mp3")
         audio = audio.set_channels(1).set_frame_rate(16000)
         audio.export(wav_path, format="wav")
 
-        print("Converted:", audio_file.name)
+        print("Converted:", voice_key_hash)
 
 
 def copy_transcripts():
-    """Convert txt -> lab files MFA expects"""
-    for txt_file in TEXT_IN.glob("*.txt"):
-        lab_path = LAB_DIR / (txt_file.stem + ".lab")
-        with open(txt_file, "r", encoding="utf8") as f:
-            text = f.read().strip()
+    """Build .lab files from dataset/alignment.json: join normalisedAlignment.characters, named by voiceKeyHash."""
+    alignment_path = DATASET / "alignment.json"
+    with open(alignment_path, "r", encoding="utf8") as f:
+        entries = json.load(f)
 
+    for entry in entries:
+        voice_key_hash = entry.get("voiceKeyHash")
+        norm = entry.get("normalisedAlignment") or {}
+        characters = norm.get("characters")
+        if not voice_key_hash or characters is None:
+            continue
+
+        text = "".join(characters).strip()
+        lab_path = LAB_DIR / f"{voice_key_hash}.lab"
         with open(lab_path, "w", encoding="utf8") as f:
             f.write(text)
+
+        print("Wrote lab:", voice_key_hash)
 
 
 def run_mfa():
@@ -160,9 +179,9 @@ def parse_outputs():
 
 
 def main():
-    ensure_dirs()
-    convert_audio()
-    copy_transcripts()
+    # ensure_dirs()
+    # convert_audio()
+    # copy_transcripts()
     run_mfa()
     parse_outputs()
     print("Done.")

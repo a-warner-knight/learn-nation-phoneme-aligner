@@ -14,13 +14,16 @@ AUDIO_IN = DATASET / "audio"
 TEXT_IN = DATASET / "transcripts"
 
 WORK_DIR = Path("mfa_work")
-WAV_DIR = WORK_DIR / "wav"
-LAB_DIR = WORK_DIR / "lab"
+WAV_DIR = WORK_DIR
+LAB_DIR = WORK_DIR
 ALIGN_DIR = WORK_DIR / "aligned"
 JSON_OUT = DATASET / "phonemes_json"
 
-ACOUSTIC_MODEL = "english_mfa"
-DICTIONARY = "english_us_arpa"
+PHONE_TYPE = "cmu"
+#PHONE_TYPE = "ipa"
+
+ACOUSTIC_MODEL = "english_mfa" if PHONE_TYPE == "ipa" else "english_us_arpa"
+DICTIONARY = "english_mfa" if PHONE_TYPE == "ipa" else "english_us_arpa"
 
 MIN_PHONE_DUR = 0.035      # 35 ms
 MERGE_THRESHOLD = 0.025    # merge phones shorter than this
@@ -82,14 +85,17 @@ def copy_transcripts():
 def run_mfa():
     """Run MFA alignment"""
     print("Running MFA alignment...")
-
+    work_dir = str(WORK_DIR.resolve())
+    align_dir = str(ALIGN_DIR.resolve())
+    print(f"Command: mfa align {work_dir} {DICTIONARY} {ACOUSTIC_MODEL} {align_dir} --clean --overwrite")
+    
     subprocess.run([
         "mfa",
         "align",
-        str(WORK_DIR),
+        work_dir,
         DICTIONARY,
         ACOUSTIC_MODEL,
-        str(ALIGN_DIR),
+        align_dir,
         "--clean",
         "--overwrite"
     ], check=True)
@@ -100,12 +106,12 @@ def load_phones_from_textgrid(tg_path):
     tg = textgrid.openTextgrid(tg_path, includeEmptyIntervals=False)
 
     # MFA typically names tier "phones"
-    phone_tier = tg.tierDict.get("phones")
+    phone_tier = tg._tierDict.get("phones")
     if phone_tier is None:
         raise RuntimeError(f"No phones tier in {tg_path}")
 
     phones = []
-    for start, end, label in phone_tier.entryList:
+    for start, end, label in phone_tier.entries:
         label = label.strip()
         if not label or label.lower() == "spn":
             continue
@@ -179,9 +185,9 @@ def parse_outputs():
 
 
 def main():
-    # ensure_dirs()
-    # convert_audio()
-    # copy_transcripts()
+    ensure_dirs()
+    convert_audio()
+    copy_transcripts()
     run_mfa()
     parse_outputs()
     print("Done.")

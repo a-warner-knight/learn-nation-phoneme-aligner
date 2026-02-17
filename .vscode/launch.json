@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug align_dataset.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/align_dataset.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

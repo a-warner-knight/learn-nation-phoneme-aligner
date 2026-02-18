@@ -10,6 +10,7 @@ from typing import List
 from pydub import AudioSegment
 from praatio import textgrid
 import mongo_adaptor
+from mongo_adaptor import PhonemeSegment
 
 # ---------------- CONFIG ----------------
 
@@ -29,7 +30,7 @@ ANTICIPATION_SHIFT = 0.015 # shift starts earlier for animation
 
 # Read mongo config from env
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DATABASE = os.environ.get("MONGO_DATABASE", "learn_nation")
+MONGO_DATABASE = os.environ.get("MONGO_DATABASE", "learn-nation")
 MONGO_COLLECTION = os.environ.get("MONGO_COLLECTION", "audioentries")
 # ----------------------------------------
 
@@ -39,7 +40,7 @@ def ensure_dirs():
 
 def get_entries(from_mongo=False):
     if from_mongo:
-        return mongo_adaptor.read_alignment_entries(uri=MONGO_URI, database=MONGO_DATABASE, collection=MONGO_COLLECTION)
+        return mongo_adaptor.read_alignment_entries()
     else:
         alignment_path = DATASET / "alignment.json"
         with open(alignment_path, "r", encoding="utf8") as f:
@@ -158,19 +159,10 @@ def postprocess(phones):
     return merged
 
 
-def export_json(name, phones):
-
-    out = []
-
-    for p in phones:
-        out.append({
-            "cmu": p["phone"],   # CMU ARPABET
-            "start": round(p["start"], 4),
-            "end": round(p["end"], 4)
-        })
+def export_json(name: str, phones: List[PhonemeSegment]):
 
     with open(JSON_OUT / f"{name}.json", "w") as f:
-        json.dump(out, f, indent=2)
+        json.dump(phones, f, indent=2)
 
     # Append to original alignment.json under phonemeAlignment
     alignment_path = DATASET / "alignment.json"
@@ -180,7 +172,7 @@ def export_json(name, phones):
         if entry.get("voiceKeyHash") == name:
             entry["phonemeAlignment"] = {
                 "created": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "alignment": out,
+                "alignment": phones,
             }
             break
     with open(alignment_path, "w", encoding="utf8") as f:
@@ -199,11 +191,14 @@ def parse_outputs(write_to_mongo=False):
         # Postprocess phones (anticipation shift, merge tiny phones, enforce minimum duration)
         phones = postprocess(phones)
 
+        # Cleanup (round) times, map to cmu/start/end
+        alignment = [PhonemeSegment(cmu=p["phone"], start=round(p["start"], 4), end=round(p["end"], 4)) for p in phones]
+
         # Write to individual JSON files, append/overwrite field to object in alignment.json
-        export_json(name, phones)
+        export_json(name, alignment)
 
         if write_to_mongo:
-            mongo_adaptor.write_phonemes_to_document(phones, uri=MONGO_URI, database=MONGO_DATABASE, collection=MONGO_COLLECTION)
+            mongo_adaptor.write_phonemes_to_document(alignment, voice_key_hash=name)
 
         print("Exported:", name)
 
@@ -228,11 +223,20 @@ def main(migrate_mongo=False, phone_type="cmu"):
     run_mfa(acoustic_model, dictionary)
     parse_outputs(migrate_mongo)
 
+    if migrate_mongo:
+        mongo_adaptor.close()
+        
     print("Done.")
 
 
 if __name__ == "__main__":
-    # Check for '--migrate-mongo' flag
-    migrate_mongo = True if "--use-mongo" in sys.argv[1:] else False
-    phone_type = "cmu" if "--cmu" in sys.argv[1:] else "ipa"
+    argv = sys.argv[1:]
+    migrate_mongo = "--use-mongo" in argv
+    if migrate_mongo:
+        i = argv.index("--use-mongo")
+        if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+            sys.stderr.write("Error: --use-mongo requires a URI (e.g. --use-mongo mongodb://localhost:27017)\n")
+            sys.exit(1)
+        MONGO_URI = argv[i + 1]
+    phone_type = "cmu" if "--cmu" in argv else "ipa"
     main(migrate_mongo, phone_type)

@@ -2,12 +2,22 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug align_dataset.py",
+      "name": "Debug align_dataset.py (cmu, from file)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/align_dataset.py",
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}"
+    },
+
+    {
+      "name": "Debug align_dataset.py (ipa, from mongo)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/align_dataset.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "args": ["--use-mongo", "mongodb://admin:paulmorrisiscool123@10.27.27.121:27017/?authSource=admin"]
     }
   ]
 }

@@ -19,14 +19,45 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 from bson import ObjectId
 
+# ---------------------------------------------------------------------------
+# Connection / session config
+# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Connection
-# ---------------------------------------------------------------------------
+# Stored after init(); used by read_* and write_phonemes_to_document when no collection/uri/database/coll_name is passed.
+_config: dict = {
+    "uri": None,
+    "database": None,
+    "coll_name": None,
+    "client_kwargs": None,
+    "client": None,
+    "collection": None,
+}
+
+
+def init(
+    uri: str = "mongodb://localhost:27017",
+    database: str = "learn_nation",
+    collection: str = "alignment",
+    **client_kwargs,
+) -> None:
+    """
+    Set the default connection config for this module. Call once at startup (e.g. from align_dataset.main).
+    After init(), read_alignment_entries(), write_phonemes_to_document(), etc. can be called without
+    passing uri/database/collection.
+    """
+    client = MongoClient(uri, **client_kwargs)
+    db: Database = client[database]
+    coll = db[collection]
+    _config["uri"] = uri
+    _config["database"] = database
+    _config["coll_name"] = collection
+    _config["client_kwargs"] = client_kwargs
+    _config["client"] = client
+    _config["collection"] = coll
 
 
 def get_client(uri: str = "mongodb://localhost:27017", **kwargs) -> MongoClient:
-    """Create a MongoDB client."""
+    """Create a MongoDB client (standalone; does not use init() config)."""
     return MongoClient(uri, **kwargs)
 
 
@@ -36,10 +67,30 @@ def get_collection(
     collection: str = "alignment",
     **client_kwargs,
 ) -> Collection:
-    """Return the alignment collection."""
+    """Return the alignment collection (standalone; does not use init() config)."""
     client = get_client(uri, **client_kwargs)
     db: Database = client[database]
     return db[collection]
+
+
+def _resolve_collection(
+    collection: Optional[Collection],
+    uri: Optional[str],
+    database: Optional[str],
+    coll_name: Optional[str],
+    **client_kwargs,
+) -> Collection:
+    """Use explicit args if provided; otherwise use init() config. Raises if no collection can be resolved."""
+    if collection is not None:
+        return collection
+    if uri is not None and database is not None and coll_name is not None:
+        return get_collection(uri=uri, database=database, collection=coll_name, **client_kwargs)
+    if _config["collection"] is not None:
+        return _config["collection"]
+    raise ValueError(
+        "No MongoDB connection: call mongo_adaptor.init(uri=..., database=..., collection=...) first, "
+        "or pass collection= or (uri=, database=, coll_name=) to this function."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -65,10 +116,7 @@ def read_alignment_entries(
     created_before: only include documents whose `created_field` is < this (timezone-aware).
     created_field: name of the document field used for the timestamp (default "created").
     """
-    if collection is None:
-        if uri is None or database is None or coll_name is None:
-            raise ValueError("Either pass collection= or (uri=, database=, coll_name=).")
-        collection = get_collection(uri=uri, database=database, collection=coll_name, **client_kwargs)
+    collection = _resolve_collection(collection, uri, database, coll_name, **client_kwargs)
 
     query: dict = {}
     if created_before is not None:
@@ -87,11 +135,7 @@ def read_alignment_entry_by_voice_key_hash(
     **client_kwargs,
 ) -> Optional[dict]:
     """Return a single document matching voiceKeyHash, or None."""
-    if collection is None:
-        if uri is None or database is None or coll_name is None:
-            raise ValueError("Either pass collection= or (uri=, database=, coll_name=).")
-        collection = get_collection(uri=uri, database=database, collection=coll_name, **client_kwargs)
-
+    collection = _resolve_collection(collection, uri, database, coll_name, **client_kwargs)
     return collection.find_one({"voiceKeyHash": voice_key_hash})
 
 
@@ -104,11 +148,7 @@ def read_alignment_entry_by_id(
     **client_kwargs,
 ) -> Optional[dict]:
     """Return a single document by _id, or None."""
-    if collection is None:
-        if uri is None or database is None or coll_name is None:
-            raise ValueError("Either pass collection= or (uri=, database=, coll_name=).")
-        collection = get_collection(uri=uri, database=database, collection=coll_name, **client_kwargs)
-
+    collection = _resolve_collection(collection, uri, database, coll_name, **client_kwargs)
     oid = ObjectId(document_id) if isinstance(document_id, str) else document_id
     return collection.find_one({"_id": oid})
 
@@ -151,10 +191,7 @@ def write_phonemes_to_document(
 
     Returns the result of update_one (or None if no collection/doc identified).
     """
-    if collection is None:
-        if uri is None or database is None or coll_name is None:
-            raise ValueError("Either pass collection= or (uri=, database=, coll_name=).")
-        collection = get_collection(uri=uri, database=database, collection=coll_name, **client_kwargs)
+    collection = _resolve_collection(collection, uri, database, coll_name, **client_kwargs)
 
     if (document_id is None) == (voice_key_hash is None):
         raise ValueError("Provide exactly one of document_id= or voice_key_hash=.")

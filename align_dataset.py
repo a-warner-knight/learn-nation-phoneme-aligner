@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,7 +35,12 @@ MONGO_DATABASE = os.environ.get("MONGO_DATABASE", "learn-nation")
 MONGO_COLLECTION = os.environ.get("MONGO_COLLECTION", "audioentries")
 # ----------------------------------------
 
-def ensure_dirs():
+def ensure_dirs(clean=False):
+    if clean:
+        for d in [WORK_DIR]:
+            if d.exists():
+                shutil.rmtree(d)
+
     for d in [WAV_DIR, LAB_DIR, ALIGN_DIR, JSON_OUT]:
         d.mkdir(parents=True, exist_ok=True)
 
@@ -216,7 +222,7 @@ def main(migrate_mongo=False, phone_type="cmu"):
         print("Processing audio entries from MongoDB.")
         mongo_adaptor.init(uri=MONGO_URI, database=MONGO_DATABASE, collection=MONGO_COLLECTION)
 
-    ensure_dirs()
+    ensure_dirs(clean=True)
     entries = get_entries(migrate_mongo)
     convert_audio(entries)
     copy_transcripts(entries)

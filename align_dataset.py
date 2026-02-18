@@ -134,15 +134,41 @@ def load_phones_from_textgrid(tg_path):
     return phones
 
 
-def postprocess(phones):
+def postprocess(phones: List[dict], is_cmu: bool):
+
+    # ---- additional schwa after plosive ends of words ----
+    PLOSIVES = {"B", "D", "G", "P", "T", "K"}
+    SCHWA = "EH" if is_cmu else "ɛ"
+    with_schwas = [] # build a new list of phones with schwa's inserted if necesssary
+
+    for i, p in enumerate(phones):
+        with_schwas.append(p) # add the current phone to the result
+
+        # check if plosive
+        if p["phone"] not in PLOSIVES:
+            continue
+        
+        # determine next phone + gap
+        if i + 1 < len(phones):
+            next_p = phones[i+1]
+            gap = next_p["start"] - p["end"]
+        else:
+            gap = float('inf') # last phoneme, so there is no gap
+
+        if gap > MIN_PHONE_DUR:
+            with_schwas.append({
+                "phone": SCHWA,
+                "start": p["end"],
+                "end": p["end"] + MIN_PHONE_DUR
+                })
 
     # ---- anticipation shift ----
-    for p in phones:
+    for p in with_schwas:
         p["start"] = max(0.0, p["start"] - ANTICIPATION_SHIFT)
 
     # ---- merge tiny phones ----
     merged = []
-    for p in phones:
+    for p in with_schwas:
         dur = p["end"] - p["start"]
 
         if merged and dur < MERGE_THRESHOLD:
@@ -185,7 +211,7 @@ def export_json(name: str, phones: List[PhonemeSegment]):
         json.dump(entries, f, indent=2, ensure_ascii=False)
 
 
-def parse_outputs(write_to_mongo=False):
+def parse_outputs(write_to_mongo=False, is_cmu=True):
     """Parse MFA TextGrids and publish"""
 
     for tg_file in ALIGN_DIR.glob("**/*.TextGrid"):
@@ -195,7 +221,7 @@ def parse_outputs(write_to_mongo=False):
         phones = load_phones_from_textgrid(tg_file)
 
         # Postprocess phones (anticipation shift, merge tiny phones, enforce minimum duration)
-        phones = postprocess(phones)
+        phones = postprocess(phones, is_cmu)
 
         # Cleanup (round) times, map to cmu/start/end
         alignment = [PhonemeSegment(cmu=p["phone"], start=round(p["start"], 4), end=round(p["end"], 4)) for p in phones]
@@ -209,14 +235,10 @@ def parse_outputs(write_to_mongo=False):
         print("Exported:", name)
 
 
-def main(migrate_mongo=False, phone_type="cmu"):
+def main(migrate_mongo=False, is_cmu=True):
     # Set phone type
-    if (phone_type == "cmu"):
-        acoustic_model = "english_us_arpa"
-        dictionary = "english_us_arpa"
-    else:
-        acoustic_model = "english_mfa"
-        dictionary = "english_mfa"
+    acoustic_model = "english_us_arpa" if is_cmu else "english_mfa"
+    dictionary = "english_us_arpa" if is_cmu else "english_mfa"
 
     if migrate_mongo:
         print("Processing audio entries from MongoDB.")
@@ -227,7 +249,7 @@ def main(migrate_mongo=False, phone_type="cmu"):
     convert_audio(entries)
     copy_transcripts(entries)
     run_mfa(acoustic_model, dictionary)
-    parse_outputs(migrate_mongo)
+    parse_outputs(migrate_mongo, is_cmu)
 
     if migrate_mongo:
         mongo_adaptor.close()
@@ -244,5 +266,5 @@ if __name__ == "__main__":
             sys.stderr.write("Error: --use-mongo requires a URI (e.g. --use-mongo mongodb://localhost:27017)\n")
             sys.exit(1)
         MONGO_URI = argv[i + 1]
-    phone_type = "cmu" if "--cmu" in argv else "ipa"
-    main(migrate_mongo, phone_type)
+    is_cmu = "--cmu" in argv
+    main(migrate_mongo, is_cmu)

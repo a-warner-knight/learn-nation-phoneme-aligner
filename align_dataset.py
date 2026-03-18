@@ -91,12 +91,13 @@ def copy_transcripts(entries: List[dict]):
         print("Wrote lab:", voice_key_hash)
 
 
-def run_mfa(acoustic_model: str, dictionary: str):
+def run_mfa(acoustic_model: str, dictionary: str, single_speaker: bool = True):
     """Run MFA alignment"""
     print("Running MFA alignment...")
     work_dir = str(WORK_DIR.resolve())
     align_dir = str(ALIGN_DIR.resolve())
-    print(f"Command: mfa align {work_dir} {dictionary} {acoustic_model} {align_dir} --clean --overwrite")
+    speaker = "--single_speaker" if single_speaker else ""
+    print(f"Command: mfa align {work_dir} {dictionary} {acoustic_model} {align_dir} --clean --overwrite {speaker}")
     
     subprocess.run([
         "mfa",
@@ -106,7 +107,8 @@ def run_mfa(acoustic_model: str, dictionary: str):
         acoustic_model,
         align_dir,
         "--clean",
-        "--overwrite"
+        "--overwrite",
+        speaker
     ], check=True)
 
 
